@@ -19,6 +19,7 @@ def main() -> None:
         lr=cfg.get("lr", 1e-3),
         force_weight=cfg.get("force_weight", 10.0),
         device=cfg.get("device", "cpu"),
+        max_samples=cfg.get("max_samples"),
     )
     metrics = train(
         config=train_cfg,

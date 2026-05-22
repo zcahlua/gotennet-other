@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Dict
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from .data import Transition1XLoader, collate_molecules
 from .metrics import compute_metrics
@@ -18,6 +18,23 @@ class TrainerConfig:
     lr: float = 1e-3
     force_weight: float = 10.0
     device: str = "cpu"
+    max_samples: int | None = None
+
+
+class SyntheticTransition1XDataset(Dataset):
+    def __init__(self, size: int = 32):
+        self.size = size
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        n = 2 + (idx % 3)
+        z = torch.randint(1, 10, (n,))
+        pos = torch.randn(n, 3)
+        energy = pos.pow(2).sum().reshape(1)
+        force = -2 * pos
+        return {"z": z, "pos": pos, "energy": energy, "force": force}
 
 
 def run_epoch(model: EnergyModel, loader: DataLoader, optimizer=None, force_weight: float = 10.0, device: str = "cpu") -> Dict[str, float]:
@@ -55,7 +72,10 @@ def run_epoch(model: EnergyModel, loader: DataLoader, optimizer=None, force_weig
 
 
 def train(config: TrainerConfig, split: str = "train", cache_dir: str | None = None) -> Dict[str, float]:
-    dataset = Transition1XLoader(split=split, cache_dir=cache_dir)
+    if cache_dir is None:
+        dataset = Transition1XLoader(dataset=SyntheticTransition1XDataset(size=config.max_samples or 32), max_samples=config.max_samples)
+    else:
+        dataset = Transition1XLoader(split=split, cache_dir=cache_dir, max_samples=config.max_samples)
     loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True, collate_fn=collate_molecules)
     model = EnergyModel().to(config.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)

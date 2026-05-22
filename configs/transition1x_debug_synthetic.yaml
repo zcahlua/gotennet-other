@@ -1,0 +1,8 @@
+split: train
+cache_dir:
+batch_size: 2
+epochs: 1
+lr: 0.001
+force_weight: 10.0
+device: cpu
+max_samples: 8

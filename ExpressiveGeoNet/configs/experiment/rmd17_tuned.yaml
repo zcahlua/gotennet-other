@@ -1,0 +1,41 @@
+# @package _global_
+
+defaults:
+- rmd17.yaml
+
+datamodule:
+  hparams:
+    batch_size: 4
+    inference_batch_size: 4
+    splits: 0
+
+model:
+  lr: 0.0002
+  lr_warmup_steps: 1000
+  lr_monitor: "validation/val_loss"
+  lr_decay: 0.8
+  lr_patience: 30
+  lr_minlr: 1e-7
+  weight_decay: 0.01
+  use_ema: false
+  representation:
+    n_interactions: 12
+    n_atom_basis: 192
+    n_rbf: 32
+    edge_updates: "linw"
+    lmax: 2
+    evec_dim: 768
+
+trainer:
+  gradient_clip_val: 5.0
+  gradient_clip_algorithm: norm
+
+callbacks:
+  early_stopping:
+    monitor: "validation/val_loss"
+    patience: 3000
+    min_delta: 1e-5
+  model_checkpoint:
+    monitor: "validation/val_loss"
+
+project: "ExpGeoNet_rmd17_tuned"

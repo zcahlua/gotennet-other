@@ -1,0 +1,22 @@
+# @package hydra.job_logging
+# python logging configuration for tasks
+version: 1
+formatters:
+  colorlog:
+    "()": "colorlog.ColoredFormatter"
+    format: "[%(cyan)s%(asctime)s%(reset)s][%(blue)s%(name)s%(reset)s][%(log_color)s%(levelname)s%(reset)s] - %(message)s"
+    log_colors:
+      DEBUG: purple
+      INFO: green
+      WARNING: yellow
+      ERROR: red
+      CRITICAL: red
+handlers:
+  console:
+    class: rich.logging.RichHandler
+    formatter: colorlog
+root:
+  level: INFO
+  handlers: [console]
+
+disable_existing_loggers: false

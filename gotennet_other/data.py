@@ -77,11 +77,12 @@ class OpenQDCLoader(Dataset):
     def _compute_split_indices(self):
         n = len(self.dataset)
         all_idx = list(range(n))
+        data = getattr(self.dataset, "data", None)
         if self.split == "all":
             return all_idx
         if self.split_by_name:
-            names = [self._get_field(i, "name") for i in all_idx]
-            if any(v is not None for v in names):
+            names = data.get("name") if isinstance(data, dict) and "name" in data else None
+            if names is not None:
                 groups = {}
                 for i, name in enumerate(names):
                     groups.setdefault(str(name), []).append(i)
@@ -97,8 +98,8 @@ class OpenQDCLoader(Dataset):
                     "test": set(ordered[ntr + nva:]),
                 }
                 return [i for i, name in enumerate(names) if str(name) in split_keys[self.split]]
-        subsets = [self._get_field(i, "subset") for i in all_idx]
-        if any(v is not None for v in subsets):
+        subsets = data.get("subset") if isinstance(data, dict) and "subset" in data else None
+        if subsets is not None:
             wanted = {"val": {"val", "valid", "validation"}, "train": {"train"}, "test": {"test"}}[self.split]
             idxs = [i for i, s in enumerate(subsets) if str(s).lower() in wanted]
             if idxs:

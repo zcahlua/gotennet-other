@@ -37,7 +37,7 @@ class TrainerConfig:
     scheduler: str = "cosine"
     warmup_epochs: int = 5
     amp: bool = True
-    ema: bool = True
+    ema: bool = False
     ema_decay: float = 0.999
     energy_target: str | None = None
     split_by_name: bool = True
@@ -55,7 +55,15 @@ def make_loader(cfg, split, dataset=None, shuffle=False):
     ds = OpenQDCLoader(cfg.dataset_name, split=split, cache_dir=cfg.cache_dir, dataset=dataset, max_samples=cfg.max_samples,
                        energy_target=cfg.energy_target, split_by_name=cfg.split_by_name, read_as_zarr=cfg.read_as_zarr,
                        train_fraction=cfg.train_fraction, val_fraction=cfg.val_fraction, test_fraction=cfg.test_fraction, seed=cfg.seed)
-    return DataLoader(ds, batch_size=cfg.batch_size, shuffle=shuffle, collate_fn=collate_molecules, num_workers=cfg.num_workers)
+    return DataLoader(
+        ds,
+        batch_size=cfg.batch_size,
+        shuffle=shuffle,
+        collate_fn=collate_molecules,
+        num_workers=cfg.num_workers,
+        pin_memory=cfg.pin_memory,
+        persistent_workers=cfg.persistent_workers if cfg.num_workers > 0 else False,
+    )
 
 def run_epoch(model, loader, cfg, optimizer=None, scaler=None, training=True):
     model.train(training)
@@ -87,7 +95,7 @@ def run_epoch(model, loader, cfg, optimizer=None, scaler=None, training=True):
         total_loss += float(loss.item()); n_batches += 1
         d=(p_e-t_e); e_abs += float(d.abs().sum().item()); e_sq += float((d**2).sum().item()); e_abs_pa += float((d.abs()/n_atoms).sum().item()); e_n += len(t_e)
         if batch.force is not None and batch.has_force.any():
-            dd=(p_f-t_f); f_abs += float(dd.abs().sum().item()); f_sq += float((dd**2).sum().item()); f_n += dd.numel()
+            dd = (p_f[f_mask] - t_f[f_mask]); f_abs += float(dd.abs().sum().item()); f_sq += float((dd**2).sum().item()); f_n += dd.numel()
     lr = optimizer.param_groups[0]["lr"] if optimizer else 0.0
     return finalize_metrics(total_loss,n_batches,e_abs,e_sq,e_abs_pa,e_n,f_abs,f_sq,f_n,lr,0)
 
@@ -95,7 +103,15 @@ def train(cfg: TrainerConfig, dataset=None, resume: str|None=None):
     torch.manual_seed(cfg.seed)
     model=EnergyModel(cfg.hidden_dim,cfg.num_layers,cfg.max_z,cfg.cutoff,cfg.num_rbf).to(cfg.device)
     opt=torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
-    sched=torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(cfg.epochs,1)) if cfg.scheduler=="cosine" else None
+    if cfg.scheduler == "cosine":
+        if cfg.warmup_epochs > 0:
+            warmup = torch.optim.lr_scheduler.LinearLR(opt, start_factor=0.1, end_factor=1.0, total_iters=cfg.warmup_epochs)
+            cosine = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(cfg.epochs - cfg.warmup_epochs, 1))
+            sched = torch.optim.lr_scheduler.SequentialLR(opt, [warmup, cosine], milestones=[cfg.warmup_epochs])
+        else:
+            sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(cfg.epochs, 1))
+    else:
+        sched = None
     scaler=torch.cuda.amp.GradScaler(enabled=cfg.amp and cfg.device.startswith("cuda"))
     start=0; best=float("inf"); best_state=None
     if resume:
@@ -113,8 +129,17 @@ def train(cfg: TrainerConfig, dataset=None, resume: str|None=None):
     return {"train":mtr,"val":valm,"best_metric":best}
 
 def evaluate(cfg: TrainerConfig, checkpoint: str, eval_split: str = "test", dataset=None):
-    ck=torch.load(checkpoint,map_location=cfg.device)
+    user_cfg = cfg
+    ck=torch.load(checkpoint,map_location=user_cfg.device)
     cfg=TrainerConfig(**ck["config"])
+    cfg.device = user_cfg.device
+    cfg.cache_dir = user_cfg.cache_dir
+    cfg.max_samples = user_cfg.max_samples
+    cfg.read_as_zarr = user_cfg.read_as_zarr
+    cfg.batch_size = user_cfg.batch_size
+    cfg.num_workers = user_cfg.num_workers
+    cfg.pin_memory = user_cfg.pin_memory
+    cfg.persistent_workers = user_cfg.persistent_workers
     model=EnergyModel(cfg.hidden_dim,cfg.num_layers,cfg.max_z,cfg.cutoff,cfg.num_rbf).to(cfg.device)
     model.load_state_dict(ck["model"])
     loader=make_loader(cfg,eval_split,dataset=dataset)

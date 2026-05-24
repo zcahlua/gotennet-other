@@ -1,4 +1,3 @@
-dataset_name: Transition1X
 split: train
 cache_dir:
 batch_size: 2

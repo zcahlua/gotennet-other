@@ -48,12 +48,19 @@ class EnergyModel(nn.Module):
         n_mols = int(batch.max().item()) + 1 if batch.numel() else 0
         energy = torch.zeros(n_mols, device=per_atom_e.device, dtype=per_atom_e.dtype)
         energy.index_add_(0, batch, per_atom_e)
+        energy = energy + 0.0 * pos.sum()
         return energy
 
     def energy_and_force(self, z: torch.Tensor, pos: torch.Tensor, batch: torch.Tensor):
         pos = pos.clone().detach().requires_grad_(True)
         energy = self(z=z, pos=pos, batch=batch)
-        grad = torch.autograd.grad(energy.sum(), pos, create_graph=True, allow_unused=True)[0]
+        grad = torch.autograd.grad(
+            energy.sum(),
+            pos,
+            create_graph=self.training,
+            retain_graph=True,
+            allow_unused=True,
+        )[0]
         if grad is None:
             grad = torch.zeros_like(pos)
         force = -grad

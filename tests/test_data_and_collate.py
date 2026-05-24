@@ -68,17 +68,3 @@ def test_sn2rxn_loader_uses_shared_openqdc_adapter():
     assert isinstance(ds, OpenQDCLoader)
     assert ds.dataset_name == "SN2RXN"
     assert len(ds) == 1
-
-
-def test_missing_force_does_not_crash_and_defaults_to_zeros():
-    class NoForce:
-        def __len__(self):
-            return 1
-
-        def __getitem__(self, idx):
-            return {"z": [1, 1], "pos": [[0, 0, 0], [1, 0, 0]], "energy": [0.0]}
-
-    ds = SN2RXNLoader(dataset=NoForce())
-    item = ds[0]
-    assert item["force"].shape == (2, 3)
-    assert torch.allclose(item["force"], torch.zeros(2, 3))

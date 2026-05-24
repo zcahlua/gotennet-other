@@ -53,8 +53,5 @@ class EnergyModel(nn.Module):
     def energy_and_force(self, z: torch.Tensor, pos: torch.Tensor, batch: torch.Tensor):
         pos = pos.clone().detach().requires_grad_(True)
         energy = self(z=z, pos=pos, batch=batch)
-        grad = torch.autograd.grad(energy.sum(), pos, create_graph=True, allow_unused=True)[0]
-        if grad is None:
-            grad = torch.zeros_like(pos)
-        force = -grad
+        force = -torch.autograd.grad(energy.sum(), pos, create_graph=True)[0]
         return energy, force

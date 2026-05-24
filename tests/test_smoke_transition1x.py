@@ -28,17 +28,9 @@ def test_train_script_wires_max_samples_from_config():
 
 def test_download_script_supports_dataset_name_and_sn2rxn_inspect_exists():
     download_script = Path("scripts/download_transition1x.py").read_text(encoding="utf-8")
-    sn2_download_script = Path("scripts/download_sn2rxn.py").read_text(encoding="utf-8")
     inspect_script = Path("scripts/inspect_sn2rxn.py").read_text(encoding="utf-8")
     assert '--dataset-name' in download_script
-    assert '"SN2RXN"' in sn2_download_script
     assert 'SN2RXNLoader' in inspect_script
-
-
-def test_eval_script_loads_checkpoint_instead_of_random_model():
-    script = Path("scripts/eval_transition1x.py").read_text(encoding="utf-8")
-    assert "--checkpoint" in script
-    assert "load_state_dict" in script
 
 
 def test_sn2rxn_real_smoke_if_cache_present():

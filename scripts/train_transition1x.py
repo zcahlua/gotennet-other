@@ -20,8 +20,6 @@ def main() -> None:
         force_weight=cfg.get("force_weight", 10.0),
         device=cfg.get("device", "cpu"),
         max_samples=cfg.get("max_samples"),
-        split_seed=cfg.get("split_seed", 0),
-        checkpoint_path=cfg.get("checkpoint_path"),
     )
     metrics = train_for_dataset(
         config=train_cfg,

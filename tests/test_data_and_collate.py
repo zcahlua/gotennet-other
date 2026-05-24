@@ -1,31 +1,36 @@
 from __future__ import annotations
+
 import torch
-from gotennet_other.data import SN2RXNLoader, collate_molecules, normalize_dataset_name
+from gotennet_other.data import SN2RXNLoader, Transition1XLoader, collate_molecules
 
-class FakeDataset:
-    def __init__(self, items): self.items=items; self.data={"name":[getattr(x,'name','a') for x in items], "subset":[getattr(x,'subset','train') for x in items]}
-    def __len__(self): return len(self.items)
-    def __getitem__(self, i): return self.items[i]
 
-class FakeSN2Bunch:
-    atomic_numbers=torch.tensor([9,6,1,1,1,17]); positions=torch.randn(6,3); charges=torch.zeros(6,dtype=torch.long)
-    energies=torch.tensor([-123.4,-122.0]); formation_energies=torch.tensor([-10.0,-9.5]); forces=torch.randn(6,3,2)
-    name='F_CH3Cl'; subset='train'
+class FakeOpenQDC:
+    def __init__(self):
+        self.data = {"subset": ["train", "val", "test"], "name": ["a", "b", "c"]}
+        self.items = [
+            {"atomic_numbers": [1, 8], "positions": [[0,0,0],[1,0,0]], "formation_energies": [1.0], "forces": [[[1.0],[2.0],[3.0]], [[4.0],[5.0],[6.0]]]},
+            {"z": [6], "pos": [[0.1,0.2,0.3]], "formation_energies": [2.0], "forces": [[0.1,0.2,0.3]]},
+            {"z": [9], "pos": [[0.0,0.0,0.0]], "energies": [3.0], "force": None},
+        ]
+    def __len__(self): return 3
+    def __getitem__(self, idx): return self.items[idx]
 
-def test_normalize_names():
-    assert normalize_dataset_name('SN2RXN')=='sn2rxn'
-    assert normalize_dataset_name('sn2_rxn')=='sn2rxn'
-    assert normalize_dataset_name('sn2-rxn')=='sn2rxn'
-    assert normalize_dataset_name('Transition1X')=='transition1x'
 
-def test_fake_sn2_mapping_and_force_axis():
-    ds=SN2RXNLoader(dataset=FakeDataset([FakeSN2Bunch()]),split='all',energy_target='energies')
-    x=ds[0]
-    assert x['z'].tolist()==[9,6,1,1,1,17]
-    assert abs(x['energy'].item()+123.4)<1e-4
-    assert x['force'].shape==(6,3)
-    assert x['name']=='F_CH3Cl' and x['subset']=='train' and x['n_atoms']==6
+def test_split_applied_inside_loader_and_force_method_axis_selected():
+    ds = Transition1XLoader(dataset=FakeOpenQDC(), split='train')
+    item = ds[0]
+    assert len(ds) == 1
+    assert item['force'].shape == (2, 3)
+    assert torch.allclose(item['force'][0], torch.tensor([1.0,2.0,3.0]))
 
-def test_missing_force_collate_none():
-    item={"z":torch.tensor([1,1]),"pos":torch.randn(2,3),"energy":torch.tensor([1.0]),"force":None}
-    b=collate_molecules([item]); assert b.force is None
+
+def test_sn2rxn_energy_target_energies_supported():
+    ds = SN2RXNLoader(dataset=FakeOpenQDC(), split='test', energy_target='energies')
+    assert ds[0]['energy'].item() == 3.0
+
+
+def test_missing_force_not_fabricated_and_collate_handles_none():
+    ds = SN2RXNLoader(dataset=FakeOpenQDC(), split='test', energy_target='energies')
+    batch = collate_molecules([ds[0]])
+    assert ds[0]['force'] is None
+    assert batch.force is None

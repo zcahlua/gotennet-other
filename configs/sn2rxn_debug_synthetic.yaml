@@ -1,21 +1,9 @@
-dataset_name: synthetic_sn2rxn
+dataset_name: SN2RXN
 split: train
 cache_dir:
 batch_size: 2
 epochs: 1
 lr: 0.001
-weight_decay: 0.0
-energy_weight: 1.0
 force_weight: 10.0
 device: cpu
 max_samples: 8
-output_dir: outputs/sn2rxn_debug_synthetic
-seed: 42
-hidden_dim: 32
-cutoff: 6.0
-num_rbf: 8
-max_z: 100
-grad_clip_norm: 10.0
-energy_target: energies
-split_by_name: true
-read_as_zarr: false

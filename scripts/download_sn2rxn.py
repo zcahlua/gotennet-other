@@ -1,7 +1,19 @@
 from __future__ import annotations
-import argparse, subprocess
+
+import argparse
+
+from scripts.download_transition1x import main as download_main
+
 
 def main() -> None:
-    p=argparse.ArgumentParser(); p.add_argument('--cache-dir', required=True); args=p.parse_args()
-    subprocess.run(['openqdc','download','SN2RXN','--cache-dir',args.cache_dir], check=True)
-if __name__=='__main__': main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cache-dir", required=True)
+    args = parser.parse_args()
+    import sys
+
+    sys.argv = [sys.argv[0], "--cache-dir", args.cache_dir, "--dataset-name", "SN2RXN"]
+    download_main()
+
+
+if __name__ == "__main__":
+    main()

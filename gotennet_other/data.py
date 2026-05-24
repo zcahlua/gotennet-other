@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Subset
 
 
 @dataclass
@@ -94,9 +94,18 @@ class OpenQDCLoader(Dataset):
         else:
             energy_t = energy_t.reshape(1)
 
-        force_t = torch.as_tensor(force, dtype=torch.float32)
-        if force_t.ndim == 3 and force_t.shape[-1] == 1:
-            force_t = force_t[..., 0]
+        if force is None:
+            force_t = torch.zeros_like(torch.as_tensor(pos, dtype=torch.float32))
+        else:
+            force_t = torch.as_tensor(force, dtype=torch.float32)
+            if force_t.ndim == 1:
+                force_t = force_t.reshape(-1, 3)
+            elif force_t.ndim == 3 and force_t.shape[-1] == 1:
+                force_t = force_t[..., 0]
+
+            # Normalize a few common force layouts to [num_atoms, 3]
+            if force_t.ndim == 2 and force_t.shape[0] == 3 and force_t.shape[1] != 3:
+                force_t = force_t.transpose(0, 1)
 
         sample = {
             "z": torch.as_tensor(z, dtype=torch.long),
@@ -121,6 +130,25 @@ class Transition1XLoader(OpenQDCLoader):
 class SN2RXNLoader(OpenQDCLoader):
     def __init__(self, *args, **kwargs):
         super().__init__(dataset_name="SN2RXN", *args, **kwargs)
+
+
+def split_dataset(dataset: Dataset, split: str, seed: int = 0, train_ratio: float = 0.8, val_ratio: float = 0.1) -> Dataset:
+    if split not in {"train", "val", "test"}:
+        raise ValueError(f"Unsupported split '{split}'. Expected one of: train, val, test.")
+    n = len(dataset)
+    if n == 0:
+        return Subset(dataset, [])
+    g = torch.Generator().manual_seed(seed)
+    perm = torch.randperm(n, generator=g).tolist()
+    n_train = int(n * train_ratio)
+    n_val = int(n * val_ratio)
+    n_train = min(n_train, n)
+    n_val = min(n_val, n - n_train)
+    train_idx = perm[:n_train]
+    val_idx = perm[n_train : n_train + n_val]
+    test_idx = perm[n_train + n_val :]
+    idx = {"train": train_idx, "val": val_idx, "test": test_idx}[split]
+    return Subset(dataset, idx)
 
 
 def collate_molecules(samples: Iterable[Dict[str, torch.Tensor]]) -> MoleculeBatch:

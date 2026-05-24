@@ -6,7 +6,7 @@ from typing import Dict
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from .data import OpenQDCLoader, collate_molecules
+from .data import OpenQDCLoader, collate_molecules, split_dataset
 from .metrics import compute_metrics
 from .model import EnergyModel
 
@@ -19,6 +19,8 @@ class TrainerConfig:
     force_weight: float = 10.0
     device: str = "cpu"
     max_samples: int | None = None
+    split_seed: int = 0
+    checkpoint_path: str | None = None
 
 
 class SyntheticTransition1XDataset(Dataset):
@@ -34,6 +36,23 @@ class SyntheticTransition1XDataset(Dataset):
         pos = torch.randn(n, 3)
         energy = pos.pow(2).sum().reshape(1)
         force = -2 * pos
+        return {"z": z, "pos": pos, "energy": energy, "force": force}
+
+
+class SyntheticSN2RXNDataset(Dataset):
+    def __init__(self, size: int = 32):
+        self.size = size
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        n = 4 + (idx % 3)
+        z = torch.randint(1, 18, (n,))
+        pos = torch.randn(n, 3)
+        reaction_coord = pos[:, 0].sum()
+        energy = (0.5 * pos.pow(2).sum() + 0.1 * reaction_coord).reshape(1)
+        force = -(pos + torch.tensor([0.1, 0.0, 0.0]))
         return {"z": z, "pos": pos, "energy": energy, "force": force}
 
 
@@ -82,9 +101,10 @@ def train_for_dataset(
     cache_dir: str | None = None,
 ) -> Dict[str, float]:
     if cache_dir is None:
+        synthetic_cls = SyntheticSN2RXNDataset if dataset_name == "SN2RXN" else SyntheticTransition1XDataset
         dataset = OpenQDCLoader(
             dataset_name=dataset_name,
-            dataset=SyntheticTransition1XDataset(size=config.max_samples or 32),
+            dataset=synthetic_cls(size=config.max_samples or 32),
             max_samples=config.max_samples,
         )
     else:
@@ -94,10 +114,13 @@ def train_for_dataset(
             cache_dir=cache_dir,
             max_samples=config.max_samples,
         )
-    loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True, collate_fn=collate_molecules)
+    split_ds = split_dataset(dataset, split=split, seed=config.split_seed)
+    loader = DataLoader(split_ds, batch_size=config.batch_size, shuffle=(split == "train"), collate_fn=collate_molecules)
     model = EnergyModel().to(config.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     metrics = {}
     for _ in range(config.epochs):
         metrics = run_epoch(model, loader, optimizer=optimizer, force_weight=config.force_weight, device=config.device)
+    if config.checkpoint_path:
+        torch.save({"model_state_dict": model.state_dict(), "dataset_name": dataset_name}, config.checkpoint_path)
     return metrics

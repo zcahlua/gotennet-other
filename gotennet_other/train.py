@@ -1,85 +1,122 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict
-
+from dataclasses import asdict, dataclass
+from pathlib import Path
+import copy
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from .data import Transition1XLoader, collate_molecules
-from .metrics import compute_metrics
+from .data import OpenQDCLoader, collate_molecules
+from .metrics import finalize_metrics
 from .model import EnergyModel
-
 
 @dataclass
 class TrainerConfig:
-    batch_size: int = 8
-    epochs: int = 3
-    lr: float = 1e-3
-    force_weight: float = 10.0
-    device: str = "cpu"
+    dataset_name: str = "transition1x"
+    cache_dir: str | None = None
+    split: str = "train"
+    batch_size: int = 32
+    epochs: int = 100
+    lr: float = 3e-4
+    weight_decay: float = 1e-6
+    energy_weight: float = 1.0
+    force_weight: float = 50.0
+    device: str = "cuda"
+    num_workers: int = 0
+    pin_memory: bool = True
+    persistent_workers: bool = False
     max_samples: int | None = None
+    output_dir: str = "outputs/default"
+    seed: int = 42
+    hidden_dim: int = 256
+    num_layers: int = 6
+    cutoff: float = 5.0
+    num_rbf: int = 64
+    max_z: int = 100
+    grad_clip_norm: float | None = 10.0
+    scheduler: str = "cosine"
+    warmup_epochs: int = 5
+    amp: bool = True
+    ema: bool = True
+    ema_decay: float = 0.999
+    energy_target: str | None = None
+    split_by_name: bool = True
+    read_as_zarr: bool = False
+    train_fraction: float = 0.8
+    val_fraction: float = 0.1
+    test_fraction: float = 0.1
 
-
-class SyntheticTransition1XDataset(Dataset):
-    def __init__(self, size: int = 32):
-        self.size = size
-
-    def __len__(self):
-        return self.size
-
+class SyntheticDataset(Dataset):
+    def __len__(self): return 32
     def __getitem__(self, idx):
-        n = 2 + (idx % 3)
-        z = torch.randint(1, 10, (n,))
-        pos = torch.randn(n, 3)
-        energy = pos.pow(2).sum().reshape(1)
-        force = -2 * pos
-        return {"z": z, "pos": pos, "energy": energy, "force": force}
+        n=3; pos=torch.randn(n,3); return {"z":torch.randint(1,10,(n,)),"pos":pos,"energy":pos.pow(2).sum().reshape(1),"force":-2*pos,"n_atoms":n}
 
+def make_loader(cfg, split, dataset=None, shuffle=False):
+    ds = OpenQDCLoader(cfg.dataset_name, split=split, cache_dir=cfg.cache_dir, dataset=dataset, max_samples=cfg.max_samples,
+                       energy_target=cfg.energy_target, split_by_name=cfg.split_by_name, read_as_zarr=cfg.read_as_zarr,
+                       train_fraction=cfg.train_fraction, val_fraction=cfg.val_fraction, test_fraction=cfg.test_fraction, seed=cfg.seed)
+    return DataLoader(ds, batch_size=cfg.batch_size, shuffle=shuffle, collate_fn=collate_molecules, num_workers=cfg.num_workers)
 
-def run_epoch(model: EnergyModel, loader: DataLoader, optimizer=None, force_weight: float = 10.0, device: str = "cpu") -> Dict[str, float]:
-    train_mode = optimizer is not None
-    model.train(train_mode)
-    all_pred_e, all_true_e, all_pred_f, all_true_f = [], [], [], []
+def run_epoch(model, loader, cfg, optimizer=None, scaler=None, training=True):
+    model.train(training)
+    total_loss=e_abs=e_sq=e_abs_pa=f_abs=f_sq=0.0; e_n=f_n=n_batches=0
     for batch in loader:
-        z = batch.z.to(device)
-        pos = batch.pos.to(device)
-        b = batch.batch.to(device)
-        true_e = batch.energy.to(device)
-        true_f = batch.force.to(device)
-
-        pred_e, pred_f = model.energy_and_force(z=z, pos=pos, batch=b)
-        e_loss = torch.mean((pred_e - true_e) ** 2)
-        f_loss = torch.mean((pred_f - true_f) ** 2)
-        loss = e_loss + force_weight * f_loss
-
-        if train_mode:
+        z,pos,b=batch.z.to(cfg.device),batch.pos.to(cfg.device),batch.batch.to(cfg.device)
+        t_e=batch.energy.to(cfg.device); n_atoms=batch.n_atoms.to(cfg.device)
+        use_amp = cfg.amp and cfg.device.startswith("cuda")
+        ctx = torch.cuda.amp.autocast(enabled=use_amp)
+        with ctx:
+            p_e,p_f=model.energy_and_force(z,pos,b,create_graph=training)
+            e_loss=torch.mean(((p_e/n_atoms)-(t_e/n_atoms))**2)
+            loss=cfg.energy_weight*e_loss
+            if batch.force is not None and batch.has_force.any():
+                t_f=batch.force.to(cfg.device)
+                f_mask=torch.cat([torch.full((int(n_atoms[i].item()),), bool(batch.has_force[i]), device=cfg.device) for i in range(len(n_atoms))])
+                if f_mask.any():
+                    f_loss=torch.mean((p_f[f_mask]-t_f[f_mask])**2); loss=loss+cfg.force_weight*f_loss
+        if training:
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
+            if scaler:
+                scaler.scale(loss).backward(); scaler.unscale_(optimizer)
+                if cfg.grad_clip_norm: torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
+                scaler.step(optimizer); scaler.update()
+            else:
+                loss.backward()
+                if cfg.grad_clip_norm: torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
+                optimizer.step()
+        total_loss += float(loss.item()); n_batches += 1
+        d=(p_e-t_e); e_abs += float(d.abs().sum().item()); e_sq += float((d**2).sum().item()); e_abs_pa += float((d.abs()/n_atoms).sum().item()); e_n += len(t_e)
+        if batch.force is not None and batch.has_force.any():
+            dd=(p_f-t_f); f_abs += float(dd.abs().sum().item()); f_sq += float((dd**2).sum().item()); f_n += dd.numel()
+    lr = optimizer.param_groups[0]["lr"] if optimizer else 0.0
+    return finalize_metrics(total_loss,n_batches,e_abs,e_sq,e_abs_pa,e_n,f_abs,f_sq,f_n,lr,0)
 
-        all_pred_e.append(pred_e.detach().cpu())
-        all_true_e.append(true_e.detach().cpu())
-        all_pred_f.append(pred_f.detach().cpu())
-        all_true_f.append(true_f.detach().cpu())
+def train(cfg: TrainerConfig, dataset=None, resume: str|None=None):
+    torch.manual_seed(cfg.seed)
+    model=EnergyModel(cfg.hidden_dim,cfg.num_layers,cfg.max_z,cfg.cutoff,cfg.num_rbf).to(cfg.device)
+    opt=torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+    sched=torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(cfg.epochs,1)) if cfg.scheduler=="cosine" else None
+    scaler=torch.cuda.amp.GradScaler(enabled=cfg.amp and cfg.device.startswith("cuda"))
+    start=0; best=float("inf"); best_state=None
+    if resume:
+        ck=torch.load(resume,map_location=cfg.device); model.load_state_dict(ck["model"]); opt.load_state_dict(ck["optimizer"]); start=ck["epoch"]+1; best=ck.get("best_metric",best)
+    train_loader=make_loader(cfg,"train",dataset=dataset,shuffle=True); val_loader=make_loader(cfg,"val",dataset=dataset)
+    out=Path(cfg.output_dir)/"checkpoints"; out.mkdir(parents=True,exist_ok=True)
+    for ep in range(start,cfg.epochs):
+        mtr=run_epoch(model,train_loader,cfg,opt,scaler,True); mtr["epoch"]=ep
+        with torch.enable_grad(): valm = run_epoch(model,val_loader,cfg,None,None,False) if len(val_loader.dataset)>0 else mtr
+        metric=valm["loss"]
+        state={"model":model.state_dict(),"optimizer":opt.state_dict(),"scheduler":sched.state_dict() if sched else None,"epoch":ep,"metrics":{"train":mtr,"val":valm},"best_metric":best,"config":asdict(cfg)}
+        torch.save(state,out/"last.pt")
+        if metric < best: best=metric; state["best_metric"]=best; torch.save(state,out/"best.pt"); best_state=copy.deepcopy(model.state_dict())
+        if sched: sched.step()
+    return {"train":mtr,"val":valm,"best_metric":best}
 
-    return compute_metrics(
-        pred_energy=torch.cat(all_pred_e),
-        true_energy=torch.cat(all_true_e),
-        pred_force=torch.cat(all_pred_f),
-        true_force=torch.cat(all_true_f),
-    )
-
-
-def train(config: TrainerConfig, split: str = "train", cache_dir: str | None = None) -> Dict[str, float]:
-    if cache_dir is None:
-        dataset = Transition1XLoader(dataset=SyntheticTransition1XDataset(size=config.max_samples or 32), max_samples=config.max_samples)
-    else:
-        dataset = Transition1XLoader(split=split, cache_dir=cache_dir, max_samples=config.max_samples)
-    loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True, collate_fn=collate_molecules)
-    model = EnergyModel().to(config.device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
-    metrics = {}
-    for _ in range(config.epochs):
-        metrics = run_epoch(model, loader, optimizer=optimizer, force_weight=config.force_weight, device=config.device)
-    return metrics
+def evaluate(cfg: TrainerConfig, checkpoint: str, eval_split: str = "test", dataset=None):
+    ck=torch.load(checkpoint,map_location=cfg.device)
+    cfg=TrainerConfig(**ck["config"])
+    model=EnergyModel(cfg.hidden_dim,cfg.num_layers,cfg.max_z,cfg.cutoff,cfg.num_rbf).to(cfg.device)
+    model.load_state_dict(ck["model"])
+    loader=make_loader(cfg,eval_split,dataset=dataset)
+    with torch.enable_grad():
+        return run_epoch(model,loader,cfg,None,None,False)

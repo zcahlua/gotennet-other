@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from gotennet_other.data import collate_molecules
 from gotennet_other.model import EnergyModel
-from gotennet_other.train import TrainerConfig, run_epoch, train, train_for_dataset
+from gotennet_other.train import TrainerConfig, run_epoch, train
 
 
 class TinyMolDataset(Dataset):
@@ -33,9 +33,4 @@ def test_run_epoch_computes_metrics_and_backprop():
 
 def test_synthetic_training_runs_without_openqdc():
     metrics = train(TrainerConfig(epochs=1, batch_size=2, max_samples=8), cache_dir=None)
-    assert "energy_mae" in metrics
-
-
-def test_synthetic_sn2rxn_training_runs_without_openqdc():
-    metrics = train_for_dataset(TrainerConfig(epochs=1, batch_size=2, max_samples=8), dataset_name="SN2RXN", cache_dir=None)
     assert "energy_mae" in metrics

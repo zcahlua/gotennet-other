@@ -39,3 +39,21 @@ def test_synthetic_training_runs_without_openqdc():
 def test_synthetic_sn2rxn_training_runs_without_openqdc():
     metrics = train_for_dataset(TrainerConfig(epochs=1, batch_size=2, max_samples=8), dataset_name="SN2RXN", cache_dir=None)
     assert "energy_mae" in metrics
+
+
+def test_checkpoint_is_written_and_split_is_supported(tmp_path):
+    ckpt = tmp_path / "model.pt"
+    cfg = TrainerConfig(epochs=1, batch_size=2, max_samples=10, checkpoint_path=str(ckpt), split_seed=42)
+    metrics = train_for_dataset(cfg, dataset_name="Transition1X", split="val", cache_dir=None)
+    assert ckpt.exists()
+    assert "energy_rmse" in metrics
+
+
+def test_model_handles_single_atom_no_edges():
+    model = EnergyModel(hidden_dim=8)
+    z = torch.tensor([1])
+    pos = torch.zeros(1, 3)
+    batch = torch.tensor([0])
+    e, f = model.energy_and_force(z, pos, batch)
+    assert e.shape == (1,)
+    assert f.shape == (1, 3)

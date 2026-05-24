@@ -19,30 +19,42 @@ class MoleculeBatch:
     charge: torch.Tensor | None = None
 
 
-class Transition1XLoader(Dataset):
-    """Adapter over OpenQDC Transition1X with cache checks and normalized samples."""
+class OpenQDCLoader(Dataset):
+    """Adapter over OpenQDC datasets with cache checks and normalized samples."""
 
-    def __init__(self, split: str = "train", cache_dir: Optional[str] = None, dataset: Any = None, max_samples: int | None = None):
+    def __init__(
+        self,
+        dataset_name: str,
+        split: str = "train",
+        cache_dir: Optional[str] = None,
+        dataset: Any = None,
+        max_samples: int | None = None,
+    ):
+        self.dataset_name = dataset_name
         self.split = split
         self.cache_dir = cache_dir
         self.max_samples = max_samples
-        self.dataset = dataset or self._load_real_dataset(split=split, cache_dir=cache_dir)
+        self.dataset = dataset or self._load_real_dataset(dataset_name=dataset_name, split=split, cache_dir=cache_dir)
 
     @staticmethod
-    def _load_real_dataset(split: str, cache_dir: Optional[str]):
+    def _load_real_dataset(dataset_name: str, split: str, cache_dir: Optional[str]):
         root = Path(cache_dir).expanduser() if cache_dir else Path.home() / ".cache" / "openqdc"
         if not root.exists():
             raise FileNotFoundError(
-                f"Transition1X cache directory not found at '{root}'. "
+                f"{dataset_name} cache directory not found at '{root}'. "
                 "Create it and pre-download OpenQDC data before running real training."
             )
 
         try:
-            from openqdc.datasets import Transition1X
+            from openqdc import datasets as oqdc_datasets
         except Exception as exc:
             raise RuntimeError(
-                "openqdc is required to use Transition1X. Install with `pip install -e \".[openqdc]\"`."
+                f"openqdc is required to use {dataset_name}. Install with `pip install -e \".[openqdc]\"`."
             ) from exc
+
+        if not hasattr(oqdc_datasets, dataset_name):
+            raise RuntimeError(f"OpenQDC dataset '{dataset_name}' is not available in installed openqdc version.")
+        dataset_cls = getattr(oqdc_datasets, dataset_name)
 
         kwargs = dict(
             cache_dir=str(root),
@@ -51,14 +63,14 @@ class Transition1XLoader(Dataset):
             distance_unit="ang",
             energy_type="formation",
         )
-        if "skip_statistics" in inspect.signature(Transition1X).parameters:
+        if "skip_statistics" in inspect.signature(dataset_cls).parameters:
             kwargs["skip_statistics"] = True
 
         try:
-            return Transition1X(**kwargs)
+            return dataset_cls(**kwargs)
         except Exception as exc:
             raise RuntimeError(
-                f"Failed to load Transition1X from local cache '{root}' for split '{split}'. "
+                f"Failed to load {dataset_name} from local cache '{root}' for split '{split}'. "
                 "Ensure the dataset exists locally and rerun."
             ) from exc
 
@@ -99,6 +111,16 @@ class Transition1XLoader(Dataset):
             if value is not None:
                 sample[key] = value
         return sample
+
+
+class Transition1XLoader(OpenQDCLoader):
+    def __init__(self, *args, **kwargs):
+        super().__init__(dataset_name="Transition1X", *args, **kwargs)
+
+
+class SN2RXNLoader(OpenQDCLoader):
+    def __init__(self, *args, **kwargs):
+        super().__init__(dataset_name="SN2RXN", *args, **kwargs)
 
 
 def collate_molecules(samples: Iterable[Dict[str, torch.Tensor]]) -> MoleculeBatch:

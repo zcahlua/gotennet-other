@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from gotennet_other.train import TrainerConfig, train
+from gotennet_other.train import TrainerConfig, train, train_for_dataset
 
 
 def test_transition1x_real_smoke_if_cache_present():
@@ -24,3 +24,23 @@ def test_transition1x_real_smoke_if_cache_present():
 def test_train_script_wires_max_samples_from_config():
     script = Path("scripts/train_transition1x.py").read_text(encoding="utf-8")
     assert 'max_samples=cfg.get("max_samples")' in script
+
+
+def test_download_script_supports_dataset_name_and_sn2rxn_inspect_exists():
+    download_script = Path("scripts/download_transition1x.py").read_text(encoding="utf-8")
+    inspect_script = Path("scripts/inspect_sn2rxn.py").read_text(encoding="utf-8")
+    assert '--dataset-name' in download_script
+    assert 'SN2RXNLoader' in inspect_script
+
+
+def test_sn2rxn_real_smoke_if_cache_present():
+    cache_dir = os.environ.get("OPENQDC_CACHE_DIR")
+    if not cache_dir:
+        pytest.skip("Set OPENQDC_CACHE_DIR to run real SN2RXN smoke test.")
+    try:
+        metrics = train_for_dataset(TrainerConfig(epochs=1, batch_size=2), dataset_name="SN2RXN", cache_dir=cache_dir)
+    except RuntimeError as exc:
+        if "openqdc is required" in str(exc):
+            pytest.skip("openqdc not installed in test environment.")
+        raise
+    assert "energy_mae" in metrics

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import yaml
 
-from gotennet_other.train import TrainerConfig, train
+from gotennet_other.train import TrainerConfig, train_for_dataset
 
 
 def main() -> None:
@@ -21,8 +21,9 @@ def main() -> None:
         device=cfg.get("device", "cpu"),
         max_samples=cfg.get("max_samples"),
     )
-    metrics = train(
+    metrics = train_for_dataset(
         config=train_cfg,
+        dataset_name=cfg.get("dataset_name", "Transition1X"),
         split=cfg.get("split", "train"),
         cache_dir=cfg.get("cache_dir"),
     )

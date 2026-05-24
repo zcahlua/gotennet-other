@@ -1,0 +1,7 @@
+dataset_name: sn2rxn
+cache_dir: data/openqdc
+batch_size: 2
+epochs: 1
+max_samples: 32
+output_dir: outputs/sn2rxn_smoke
+device: cpu

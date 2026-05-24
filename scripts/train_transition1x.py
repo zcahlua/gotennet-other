@@ -1,33 +1,14 @@
 from __future__ import annotations
+import argparse, yaml
+from gotennet_other.train import TrainerConfig, train, evaluate
 
-import argparse
-import yaml
-
-from gotennet_other.train import TrainerConfig, train
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
-    args = parser.parse_args()
-    with open(args.config, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-
-    train_cfg = TrainerConfig(
-        batch_size=cfg.get("batch_size", 8),
-        epochs=cfg.get("epochs", 1),
-        lr=cfg.get("lr", 1e-3),
-        force_weight=cfg.get("force_weight", 10.0),
-        device=cfg.get("device", "cpu"),
-        max_samples=cfg.get("max_samples"),
-    )
-    metrics = train(
-        config=train_cfg,
-        split=cfg.get("split", "train"),
-        cache_dir=cfg.get("cache_dir"),
-    )
-    print(metrics)
-
-
-if __name__ == "__main__":
-    main()
+def main():
+    p=argparse.ArgumentParser(); p.add_argument('--config',required=True); p.add_argument('--mode',choices=['train','eval','train_eval'],default='train'); p.add_argument('--checkpoint'); p.add_argument('--resume'); p.add_argument('--eval-split',default='test',choices=['train','val','test','all']); a=p.parse_args()
+    cfg=TrainerConfig(**yaml.safe_load(open(a.config,'r',encoding='utf-8')))
+    if a.mode=='train': print(train(cfg,resume=a.resume))
+    elif a.mode=='eval':
+        if not a.checkpoint: raise ValueError('--checkpoint required for --mode eval')
+        print(evaluate(cfg,a.checkpoint,a.eval_split))
+    else:
+        train(cfg,resume=a.resume); ck=a.checkpoint or f"{cfg.output_dir}/checkpoints/best.pt"; print(evaluate(cfg,ck,a.eval_split))
+if __name__=='__main__': main()

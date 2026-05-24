@@ -116,6 +116,8 @@ def train(cfg: TrainerConfig, dataset=None, resume: str|None=None):
     start=0; best=float("inf"); best_state=None
     if resume:
         ck=torch.load(resume,map_location=cfg.device); model.load_state_dict(ck["model"]); opt.load_state_dict(ck["optimizer"]); start=ck["epoch"]+1; best=ck.get("best_metric",best)
+        if sched is not None and ck.get("scheduler") is not None:
+            sched.load_state_dict(ck["scheduler"])
     train_loader=make_loader(cfg,"train",dataset=dataset,shuffle=True); val_loader=make_loader(cfg,"val",dataset=dataset)
     out=Path(cfg.output_dir)/"checkpoints"; out.mkdir(parents=True,exist_ok=True)
     for ep in range(start,cfg.epochs):

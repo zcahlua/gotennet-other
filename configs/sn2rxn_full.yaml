@@ -23,7 +23,7 @@ grad_clip_norm: 10.0
 scheduler: cosine
 warmup_epochs: 5
 amp: true
-ema: true
+ema: false
 ema_decay: 0.999
 energy_target: energies
 split_by_name: true

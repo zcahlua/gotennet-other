@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,9 @@ def main() -> None:
     parser.add_argument("--as-zarr", action="store_true")
     parser.add_argument("--gs", action="store_true")
     args = parser.parse_args()
+
+    if shutil.which("openqdc") is None:
+        raise RuntimeError('OpenQDC CLI not found. Install with: pip install -e ".[openqdc]"')
 
     cache_dir = Path(args.cache_dir).expanduser()
     cache_dir.mkdir(parents=True, exist_ok=True)

@@ -12,8 +12,10 @@ def main():
         if not a.checkpoint: raise ValueError('--checkpoint required for --mode eval')
         print(evaluate(cfg,a.checkpoint,a.eval_split))
     else:
+        if a.checkpoint:
+            raise ValueError('--checkpoint is only valid for --mode eval')
         train_metrics = train(cfg,resume=a.resume)
-        ck=a.checkpoint or f"{cfg.output_dir}/checkpoints/best.pt"
+        ck=f"{cfg.output_dir}/checkpoints/best.pt"
         eval_metrics = evaluate(cfg,ck,a.eval_split)
         print({"train": train_metrics, "eval": eval_metrics})
 if __name__=='__main__': main()

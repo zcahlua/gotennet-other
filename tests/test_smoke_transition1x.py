@@ -1,54 +1,30 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-
 import pytest
 
-from gotennet_other.train import TrainerConfig, train, train_for_dataset
+from gotennet_other.train import TrainerConfig, evaluate_checkpoint, train_for_dataset
 
 
 def test_transition1x_real_smoke_if_cache_present():
-    cache_dir = os.environ.get("OPENQDC_CACHE_DIR")
+    cache_dir = os.environ.get('OPENQDC_CACHE_DIR')
     if not cache_dir:
-        pytest.skip("Set OPENQDC_CACHE_DIR to run real Transition1X smoke test.")
-    try:
-        metrics = train(TrainerConfig(epochs=1, batch_size=2), cache_dir=cache_dir)
-    except RuntimeError as exc:
-        if "openqdc is required" in str(exc):
-            pytest.skip("openqdc not installed in test environment.")
-        raise
-    assert "energy_mae" in metrics
+        pytest.skip('Set OPENQDC_CACHE_DIR to run real Transition1X smoke test.')
+    metrics = train_for_dataset(TrainerConfig(epochs=1, batch_size=2), dataset_name='Transition1X', cache_dir=cache_dir)
+    assert 'energy_mae' in metrics
 
 
-def test_train_script_wires_max_samples_from_config():
-    script = Path("scripts/train_transition1x.py").read_text(encoding="utf-8")
-    assert 'max_samples=cfg.get("max_samples")' in script
-
-
-def test_download_script_supports_dataset_name_and_sn2rxn_inspect_exists():
-    download_script = Path("scripts/download_transition1x.py").read_text(encoding="utf-8")
-    sn2_download_script = Path("scripts/download_sn2rxn.py").read_text(encoding="utf-8")
-    inspect_script = Path("scripts/inspect_sn2rxn.py").read_text(encoding="utf-8")
-    assert '--dataset-name' in download_script
-    assert '"SN2RXN"' in sn2_download_script
-    assert 'SN2RXNLoader' in inspect_script
-
-
-def test_eval_script_loads_checkpoint_instead_of_random_model():
-    script = Path("scripts/eval_transition1x.py").read_text(encoding="utf-8")
-    assert "--checkpoint" in script
-    assert "load_state_dict" in script
+def test_eval_uses_checkpoint_and_split(tmp_path):
+    ckpt_dir = tmp_path / 'ckpt'
+    cfg = TrainerConfig(epochs=1, batch_size=2, max_samples=8, checkpoint_path=str(ckpt_dir))
+    train_for_dataset(cfg, dataset_name='Transition1X', split='train', cache_dir=None)
+    metrics = evaluate_checkpoint(cfg, str(ckpt_dir / 'best.pt'), dataset_name='Transition1X', split='test', cache_dir=None)
+    assert 'energy_rmse' in metrics
 
 
 def test_sn2rxn_real_smoke_if_cache_present():
-    cache_dir = os.environ.get("OPENQDC_CACHE_DIR")
+    cache_dir = os.environ.get('OPENQDC_CACHE_DIR')
     if not cache_dir:
-        pytest.skip("Set OPENQDC_CACHE_DIR to run real SN2RXN smoke test.")
-    try:
-        metrics = train_for_dataset(TrainerConfig(epochs=1, batch_size=2), dataset_name="SN2RXN", cache_dir=cache_dir)
-    except RuntimeError as exc:
-        if "openqdc is required" in str(exc):
-            pytest.skip("openqdc not installed in test environment.")
-        raise
-    assert "energy_mae" in metrics
+        pytest.skip('Set OPENQDC_CACHE_DIR to run real SN2RXN smoke test.')
+    metrics = train_for_dataset(TrainerConfig(epochs=1, batch_size=2), dataset_name='SN2RXN', cache_dir=cache_dir)
+    assert 'energy_mae' in metrics

@@ -1,9 +1,19 @@
 from __future__ import annotations
-import argparse, sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import argparse
+
 from gotennet_other.data import Transition1XLoader
 
-def main():
- p=argparse.ArgumentParser(); p.add_argument('--cache-dir',required=True); p.add_argument('--index',type=int,default=0); p.add_argument('--split',default='train'); a=p.parse_args(); ds=Transition1XLoader(split=a.split,cache_dir=a.cache_dir); x=ds[a.index]; print(x)
-if __name__=='__main__': main()
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cache-dir", required=True)
+    parser.add_argument("--split", default="train")
+    args = parser.parse_args()
+    ds = Transition1XLoader(split=args.split, cache_dir=args.cache_dir, max_samples=1)
+    sample = ds[0]
+    print({k: (v.shape if hasattr(v, "shape") else v) for k, v in sample.items()})
+
+
+if __name__ == "__main__":
+    main()

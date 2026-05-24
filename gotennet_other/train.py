@@ -6,7 +6,7 @@ from typing import Dict
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from .data import Transition1XLoader, collate_molecules
+from .data import OpenQDCLoader, collate_molecules
 from .metrics import compute_metrics
 from .model import EnergyModel
 
@@ -72,10 +72,28 @@ def run_epoch(model: EnergyModel, loader: DataLoader, optimizer=None, force_weig
 
 
 def train(config: TrainerConfig, split: str = "train", cache_dir: str | None = None) -> Dict[str, float]:
+    return train_for_dataset(config=config, dataset_name="Transition1X", split=split, cache_dir=cache_dir)
+
+
+def train_for_dataset(
+    config: TrainerConfig,
+    dataset_name: str = "Transition1X",
+    split: str = "train",
+    cache_dir: str | None = None,
+) -> Dict[str, float]:
     if cache_dir is None:
-        dataset = Transition1XLoader(dataset=SyntheticTransition1XDataset(size=config.max_samples or 32), max_samples=config.max_samples)
+        dataset = OpenQDCLoader(
+            dataset_name=dataset_name,
+            dataset=SyntheticTransition1XDataset(size=config.max_samples or 32),
+            max_samples=config.max_samples,
+        )
     else:
-        dataset = Transition1XLoader(split=split, cache_dir=cache_dir, max_samples=config.max_samples)
+        dataset = OpenQDCLoader(
+            dataset_name=dataset_name,
+            split=split,
+            cache_dir=cache_dir,
+            max_samples=config.max_samples,
+        )
     loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True, collate_fn=collate_molecules)
     model = EnergyModel().to(config.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)

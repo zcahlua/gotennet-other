@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from gotennet_other.data import Transition1XLoader, collate_molecules
+from gotennet_other.data import OpenQDCLoader, SN2RXNLoader, Transition1XLoader, collate_molecules
 
 
 class DummyDataset:
@@ -61,3 +61,10 @@ def test_missing_cache_has_actionable_message(tmp_path):
     missing = tmp_path / "nope"
     with pytest.raises(FileNotFoundError, match="cache directory not found"):
         Transition1XLoader(cache_dir=str(missing))
+
+
+def test_sn2rxn_loader_uses_shared_openqdc_adapter():
+    ds = SN2RXNLoader(dataset=DummyDataset(), max_samples=1)
+    assert isinstance(ds, OpenQDCLoader)
+    assert ds.dataset_name == "SN2RXN"
+    assert len(ds) == 1

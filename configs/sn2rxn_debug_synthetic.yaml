@@ -1,4 +1,4 @@
-dataset_name: Transition1X
+dataset_name: SN2RXN
 split: train
 cache_dir:
 batch_size: 2
